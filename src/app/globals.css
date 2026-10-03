@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --foreground: #171717;
+  --background: #f8fafc;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+/* Hide scrollbar utility */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Status badge colors */
+.status-PENDING { @apply bg-amber-100 text-amber-800; }
+.status-ASSIGNED { @apply bg-blue-100 text-blue-800; }
+.status-IN_PROGRESS { @apply bg-purple-100 text-purple-800; }
+.status-COMPLETED { @apply bg-green-100 text-green-800; }
+.status-CANCELLED { @apply bg-red-100 text-red-800; }
+
+/* Smooth transitions */
+* { @apply transition-colors duration-150; }
+
+/* Animated gradient for hero */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 6s ease infinite;
+}
