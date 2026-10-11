@@ -20,12 +20,43 @@ export interface OdooAuthConfig {
   password?: string;
 }
 
-const DEFAULT_CONFIG = {
-  url: process.env.ODOO_URL || "http://localhost:8069",
-  db: process.env.ODOO_DB || "scrappay_db",
-  username: process.env.ODOO_USERNAME || "scrappay.business@gmail.com",
-  password: process.env.ODOO_PASSWORD || "Scrappayofficial@123",
-};
+/**
+ * Resolves, cleans, and sanitizes Odoo credentials at runtime.
+ * Prevents issues where environment variables are passed as literal variable names (e.g. "ODOO_DB").
+ */
+export function getOdooConfig(overrideConfig: OdooAuthConfig = {}) {
+  const sanitize = (val?: string | null): string => {
+    if (!val) return "";
+    return val.trim().replace(/^["']|["']$/g, "");
+  };
+
+  let url = sanitize(overrideConfig.url || process.env.ODOO_URL);
+  let db = sanitize(overrideConfig.db || process.env.ODOO_DB);
+  let username = sanitize(overrideConfig.username || process.env.ODOO_USERNAME);
+  let password = sanitize(overrideConfig.password || process.env.ODOO_PASSWORD);
+
+  // If db was mistakenly configured as literal "ODOO_DB" or "$ODOO_DB", fall back to default
+  if (!db || db.toLowerCase() === "odoo_db" || db === "$ODOO_DB") {
+    db = "scrappay_db";
+  }
+
+  // If url was mistakenly configured as literal "ODOO_URL" or "$ODOO_URL"
+  if (!url || url.toLowerCase() === "odoo_url" || url === "$ODOO_URL") {
+    url = "http://localhost:8069";
+  }
+
+  // If username was mistakenly configured as literal "ODOO_USERNAME"
+  if (!username || username.toLowerCase() === "odoo_username" || username === "$ODOO_USERNAME") {
+    username = "scrappay.business@gmail.com";
+  }
+
+  // If password was mistakenly configured as literal "ODOO_PASSWORD"
+  if (!password || password.toLowerCase() === "odoo_password" || password === "$ODOO_PASSWORD") {
+    password = "Scrappayofficial@123";
+  }
+
+  return { url, db, username, password };
+}
 
 /**
  * Generic helper to make JSON-RPC calls to Odoo
@@ -36,8 +67,8 @@ export async function callOdooJsonRpc<T = any>(
   args: any[],
   config: OdooAuthConfig = {}
 ): Promise<T> {
-  const odooUrl = config.url || DEFAULT_CONFIG.url;
-  const endpoint = `${odooUrl.replace(/\/+$/, "")}/jsonrpc`;
+  const { url } = getOdooConfig(config);
+  const endpoint = `${url.replace(/\/+$/, "")}/jsonrpc`;
 
   const payload = {
     jsonrpc: "2.0",
@@ -79,9 +110,9 @@ export async function callOdooJsonRpc<T = any>(
  * Returns UID (number) if successful, throws or returns null if failed
  */
 export async function authenticateOdoo(config: OdooAuthConfig = {}): Promise<number> {
-  const db = config.db || DEFAULT_CONFIG.db;
-  const username = config.username || DEFAULT_CONFIG.username;
-  const password = config.password || DEFAULT_CONFIG.password;
+  const { db, username, password, url } = getOdooConfig(config);
+
+  console.log(`[Odoo Client] Authenticating to ${url} on database "${db}" as "${username}"`);
 
   const uid = await callOdooJsonRpc<number | false>(
     "common",
@@ -105,8 +136,7 @@ export async function fetchOdooProducts(
   domain: any[] = [],
   config: OdooAuthConfig = {}
 ): Promise<OdooProduct[]> {
-  const db = config.db || DEFAULT_CONFIG.db;
-  const password = config.password || DEFAULT_CONFIG.password;
+  const { db, password } = getOdooConfig(config);
 
   // 1. Authenticate to obtain UID
   const uid = await authenticateOdoo(config);
