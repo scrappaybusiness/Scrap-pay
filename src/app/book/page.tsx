@@ -11,10 +11,17 @@ import {
   Clock, 
   Check, 
   Search,
-  ChevronLeft
+  ChevronLeft,
+  Loader2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { getScrapProducts, OdooProduct } from "@/lib/odoo";
+
+const DEFAULT_SCRAP_OPTIONS = [
+  "Normal Recyclables", "Large Appliances", "Small Appliances", 
+  "IT/E-waste", "Vehicle Scrap", "Others"
+];
 
 export default function BookPickupPage() {
   const router = useRouter();
@@ -22,15 +29,38 @@ export default function BookPickupPage() {
   const [vehicle, setVehicle] = useState<"small" | "large" | null>(null);
   const [scrapTypes, setScrapTypes] = useState<string[]>([]);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [scrapOptions, setScrapOptions] = useState<string[]>(DEFAULT_SCRAP_OPTIONS);
+  const [loadingOptions, setLoadingOptions] = useState(true);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
 
-  const SCRAP_OPTIONS = [
-    "Normal Recyclables", "Large Appliances", "Small Appliances", 
-    "IT/E-waste", "Vehicle Scrap", "Others"
-  ];
+    // Fetch live products/categories from Odoo
+    getScrapProducts()
+      .then((products: OdooProduct[]) => {
+        if (products && products.length > 0) {
+          // Extract product categories and product names from Odoo
+          const categories = products
+            .map((p) => (p.categ_id ? p.categ_id[1] : null))
+            .filter((c): c is string => Boolean(c) && c !== "All");
+
+          const productNames = products.map((p) => p.name);
+
+          // Combine categories and distinct product names
+          const combined = Array.from(new Set([...categories, ...productNames]));
+          if (!combined.includes("Others")) {
+            combined.push("Others");
+          }
+          setScrapOptions(combined);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load scrap types from Odoo, using defaults:", err);
+      })
+      .finally(() => {
+        setLoadingOptions(false);
+      });
+  }, []);
 
   const toggleScrapType = (type: string) => {
     if (scrapTypes.includes(type)) {
@@ -95,11 +125,18 @@ export default function BookPickupPage() {
             </div>
           </section>
 
-          {/* Scrap Type Selection */}
+          {/* Scrap Type Selection (Live from Odoo) */}
           <section className="px-5 py-6 bg-white mb-2">
-            <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Select Your Scrap Type</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Select Your Scrap Type</h2>
+              {loadingOptions && (
+                <span className="text-[11px] text-gray-400 flex items-center gap-1 font-medium">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Syncing with Odoo...
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
-              {SCRAP_OPTIONS.map(type => {
+              {scrapOptions.map(type => {
                 const isSelected = scrapTypes.includes(type);
                 return (
                   <button
