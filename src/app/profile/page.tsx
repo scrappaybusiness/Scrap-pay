@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { 
@@ -15,7 +15,9 @@ import {
   ChevronLeft,
   MessageCircle,
   Phone,
-  Plus
+  Plus,
+  LogIn,
+  Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -23,45 +25,134 @@ import { useRouter } from "next/navigation";
 export default function ProfilePage() {
   const router = useRouter();
   const [activeModal, setActiveModal] = useState<"none" | "address" | "language" | "notifications" | "help" | "logout">("none");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Dynamic user profile state (Loaded from verified session)
+  const [userProfile, setUserProfile] = useState<{
+    name: string;
+    mobile: string;
+    role: string;
+  }>({
+    name: "Guest User",
+    mobile: "Not logged in",
+    role: "guest",
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const token = localStorage.getItem("bottelpay_token") || localStorage.getItem("scrap_pay_session");
+        const rawUser = localStorage.getItem("bottelpay_user") || localStorage.getItem("scrap_pay_user");
+
+        if (token && rawUser) {
+          const parsed = JSON.parse(rawUser);
+          setUserProfile({
+            name: parsed.name || "Scrap Pay User",
+            mobile: parsed.mobile || "+91 Mobile Number",
+            role: parsed.role || "household",
+          });
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+          setUserProfile({
+            name: "Guest User",
+            mobile: "Browsing Mode",
+            role: "guest",
+          });
+        }
+      }
+    } catch (e) {
+      setIsAuthenticated(false);
+    }
+  }, []);
 
   const LANGUAGES = [
     "English", "Hindi (हिन्दी)", "Bengali (বাংলা)", "Marathi (मराठी)", 
     "Telugu (తెలుగు)", "Tamil (தமிழ்)", "Gujarati (ગુજરાતી)", "Urdu (اردو)", 
     "Kannada (ಕನ್ನಡ)", "Odia (ଓଡ଼ିଆ)", "Malayalam (മലയാളം)", "Punjabi (ਪੰਜਾਬੀ)",
-    "Assamese (অসমীয়া)", "Maithili (मैथिली)", "Santali (ᱥᱟᱱᱛᱟᱲᱤ)", "Kashmiri (कॉशुर)",
+    "Assamese (অसमীয়া)", "Maithili (मैथिली)", "Santali (ᱥᱟᱱᱛᱟᱲᱤ)", "Kashmiri (कॉशुर)",
     "Nepali (नेपाली)", "Konkani (कोंकणी)", "Sindhi (سنڌي)", "Dogri (डोगरी)",
     "Manipuri (ꯃꯤꯇꯩꯂꯣꯟ)", "Bodo (बर')", "Sanskrit (संस्कृतम्)"
   ];
 
   const handleLogout = () => {
-    localStorage.removeItem("bottelpay_token");
-    localStorage.removeItem("bottelpay_user");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("bottelpay_token");
+      localStorage.removeItem("bottelpay_user");
+      localStorage.removeItem("scrap_pay_session");
+      localStorage.removeItem("scrap_pay_user");
+      document.cookie = "bottelpay_token=; path=/; max-age=0";
+    }
     toast.success("Logged out successfully");
-    router.push("/login");
+    router.replace("/login");
   };
 
+  // Dynamic Avatar Initial Generator
+  const userInitial = isAuthenticated && userProfile.name
+    ? userProfile.name.charAt(0).toUpperCase()
+    : "G";
+
   return (
-    <div className="w-full min-h-screen bg-gray-50 md:bg-transparent pb-24 md:pb-8    relative  flex flex-col font-sans overflow-hidden md:max-w-6xl md:mx-auto md:px-8 md:pt-6">
+    <div className="w-full min-h-screen bg-gray-50 md:bg-transparent pb-24 md:pb-8 relative flex flex-col font-sans overflow-hidden md:max-w-6xl md:mx-auto md:px-8 md:pt-6">
       
       {/* ─── Main Profile View ─── */}
       <div className={`w-full min-h-screen flex flex-col transition-transform duration-300 ${activeModal !== "none" ? "-translate-x-1/4 opacity-50" : "translate-x-0 opacity-100"}`}>
         <header className="px-6 pt-12 pb-6 bg-white border-b border-gray-100 flex items-center justify-between">
-          <Image src="/logo-horizontal-transparent.png" alt="Scrap Pay" width={140} height={40} className="w-auto h-8 object-contain" />
+          <Link href="/" className="flex items-center gap-2">
+            <Image src="/logo-horizontal-transparent.png" alt="Scrap Pay" width={140} height={40} className="w-auto h-8 object-contain" />
+          </Link>
+          <Link href="/" className="text-xs font-bold text-emerald-600 hover:underline">
+            &larr; Back to Home
+          </Link>
         </header>
 
+        {/* ─── Profile Header with Dynamic Avatar ─── */}
         <div className="px-6 py-8 flex flex-col items-center bg-white mb-3 shadow-sm border-b border-gray-100">
-          <div className="w-24 h-24 bg-brand-50 rounded-full flex items-center justify-center mb-4 border-4 border-white shadow-md relative">
-            <User className="w-10 h-10 text-brand-600" />
-            <div className="absolute bottom-0 right-0 w-6 h-6 bg-green-500 rounded-full border-2 border-white"></div>
+          
+          {/* Dynamic Avatar */}
+          <div className="w-24 h-24 bg-gradient-to-br from-emerald-500 to-brand-600 text-white rounded-full flex items-center justify-center mb-4 border-4 border-white shadow-lg relative font-black text-4xl">
+            {userInitial}
+            {isAuthenticated && (
+              <div className="absolute bottom-0 right-0 w-6 h-6 bg-green-500 rounded-full border-2 border-white" title="Verified Account"></div>
+            )}
           </div>
-          <h2 className="text-2xl font-black text-gray-900 mb-1">Anshu Kumar</h2>
-          <p className="text-sm font-bold text-gray-500">+91 92622 05461</p>
-          <div className="mt-4 bg-gray-50 px-4 py-1.5 rounded-full border border-gray-200">
-            <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Household Account</span>
+
+          <h2 className="text-2xl font-black text-gray-900 mb-1">{userProfile.name}</h2>
+          <p className="text-sm font-bold text-gray-500">{userProfile.mobile}</p>
+          
+          <div className="mt-4 flex items-center gap-2">
+            {isAuthenticated ? (
+              <span className="bg-emerald-50 text-emerald-700 text-[11px] font-bold px-4 py-1.5 rounded-full border border-emerald-200 uppercase tracking-wide">
+                {userProfile.role === "business" ? "Business Account" : "Household Account"}
+              </span>
+            ) : (
+              <Link 
+                href="/login" 
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-2 rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"
+              >
+                <LogIn className="w-4 h-4" /> Login with Mobile OTP
+              </Link>
+            )}
           </div>
         </div>
 
-        <main className="flex-1 px-4 py-4 space-y-2">
+        {/* 10% Extra Promotional Banner in Profile for All Users */}
+        <div className="px-4 py-2">
+          <div className="bg-gradient-to-r from-amber-500 to-emerald-600 rounded-2xl p-4 text-white flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-6 h-6 text-yellow-200 shrink-0" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-orange-100">Special Promo Active</p>
+                <p className="text-sm font-bold">10% Extra Cash on Your Next Pickup</p>
+              </div>
+            </div>
+            <Link href="/book" className="bg-white text-emerald-800 text-xs font-black px-3.5 py-2 rounded-xl shadow-sm shrink-0">
+              Book &rarr;
+            </Link>
+          </div>
+        </div>
+
+        <main className="flex-1 px-4 py-3 space-y-2">
           <button onClick={() => setActiveModal("address")} className="w-full bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-gray-100 hover:bg-gray-50 transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><MapPin className="w-5 h-5"/></div>
@@ -102,10 +193,12 @@ export default function ProfilePage() {
             <ChevronRight className="w-5 h-5 text-gray-400" />
           </button>
 
-          <button onClick={() => setActiveModal("logout")} className="w-full bg-white mt-4 p-4 rounded-2xl flex items-center gap-4 shadow-sm border border-red-100 hover:bg-red-50 transition-colors">
-            <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-500"><LogOut className="w-5 h-5"/></div>
-            <span className="font-bold text-red-600">Logout</span>
-          </button>
+          {isAuthenticated && (
+            <button onClick={() => setActiveModal("logout")} className="w-full bg-white mt-4 p-4 rounded-2xl flex items-center gap-4 shadow-sm border border-red-100 hover:bg-red-50 transition-colors">
+              <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-500"><LogOut className="w-5 h-5"/></div>
+              <span className="font-bold text-red-600">Logout</span>
+            </button>
+          )}
         </main>
       </div>
 
@@ -204,26 +297,33 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ─── Logout Confirmation Modal (Pop-up) ─── */}
-      <div className={`fixed inset-0 z-[60] flex items-center justify-center p-4 transition-all duration-300 ${activeModal === "logout" ? "opacity-100 visible" : "opacity-0 invisible"}`}>
-        <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setActiveModal("none")}></div>
-        <div className={`bg-white w-full max-w-[320px] rounded-3xl p-6  relative z-10 transition-transform duration-300 ${activeModal === "logout" ? "scale-100 translate-y-0" : "scale-95 translate-y-4"}`}>
-          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4 mx-auto">
-            <LogOut className="w-8 h-8 text-red-500" />
-          </div>
-          <h3 className="text-xl font-black text-gray-900 text-center mb-2">Sign Out</h3>
-          <p className="text-sm text-gray-500 text-center mb-6">Are you sure you want to log out of your Scrap Pay account?</p>
-          <div className="flex gap-3">
-            <button onClick={() => setActiveModal("none")} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-200">
-              Cancel
-            </button>
-            <button onClick={handleLogout} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold text-sm hover:bg-red-600 shadow-lg shadow-red-500/30">
-              Yes, Logout
-            </button>
+      {/* ─── Logout Confirmation Dialog ─── */}
+      {activeModal === "logout" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <LogOut className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-black text-gray-900 mb-2">Logout Confirmation</h3>
+            <p className="text-sm text-gray-500 mb-6">Are you sure you want to log out of your Scrap Pay account?</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setActiveModal("none")} 
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleLogout} 
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold text-sm shadow-md transition-colors"
+              >
+                Yes, Logout
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-      
+      )}
+
     </div>
   );
 }

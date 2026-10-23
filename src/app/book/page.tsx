@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   X, 
   Bike, 
@@ -12,7 +12,14 @@ import {
   Check, 
   Search,
   ChevronLeft,
-  Loader2
+  Loader2,
+  Recycle,
+  ArrowRight,
+  RotateCcw,
+  AlertCircle,
+  Building2,
+  Home as HomeIcon,
+  CheckCircle2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -32,6 +39,21 @@ export default function BookPickupPage() {
   const [scrapOptions, setScrapOptions] = useState<string[]>(DEFAULT_SCRAP_OPTIONS);
   const [loadingOptions, setLoadingOptions] = useState(true);
 
+  // Mandatory Checkout Fast2SMS Login Modal
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authStep, setAuthStep] = useState<"phone" | "otp" | "role">("phone");
+  const [authPhone, setAuthPhone] = useState("");
+  const [authOtp, setAuthOtp] = useState(["", "", "", "", "", ""]);
+  const [authRole, setAuthRole] = useState<"household" | "business" | null>(null);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+  const [resendTimer, setResendTimer] = useState(30);
+  const [canResend, setCanResend] = useState(false);
+
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   useEffect(() => {
     setMounted(true);
 
@@ -39,28 +61,36 @@ export default function BookPickupPage() {
     getScrapProducts()
       .then((products: OdooProduct[]) => {
         if (products && products.length > 0) {
-          // Extract product categories and product names from Odoo
-          const categories = products
-            .map((p) => (p.categ_id ? p.categ_id[1] : null))
-            .filter((c): c is string => Boolean(c) && c !== "All");
-
-          const productNames = products.map((p) => p.name);
-
-          // Combine categories and distinct product names
-          const combined = Array.from(new Set([...categories, ...productNames]));
-          if (!combined.includes("Others")) {
-            combined.push("Others");
-          }
-          setScrapOptions(combined);
+          const names = Array.from(new Set(products.map(p => p.name)));
+          setScrapOptions(names);
         }
       })
-      .catch((err) => {
-        console.warn("Could not load scrap types from Odoo, using defaults:", err);
+      .catch(() => {
+        setScrapOptions(DEFAULT_SCRAP_OPTIONS);
       })
       .finally(() => {
         setLoadingOptions(false);
       });
   }, []);
+
+  // Resend OTP countdown inside checkout modal
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (showAuthModal && authStep === "otp" && resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [showAuthModal, authStep, resendTimer]);
 
   const toggleScrapType = (type: string) => {
     if (scrapTypes.includes(type)) {
@@ -70,13 +100,144 @@ export default function BookPickupPage() {
     }
   };
 
+  // ─── Final Step Confirmation (Mandatory Login Enforced Here Only) ───
   const handleConfirm = () => {
     if (!vehicle || scrapTypes.length === 0) {
       toast.error("Please select a vehicle and at least one scrap type.");
       return;
     }
+
+    const token = typeof window !== "undefined" && (localStorage.getItem("bottelpay_token") || localStorage.getItem("scrap_pay_session"));
+    if (!token) {
+      // User is a guest -> Mandatory login required only at final checkout!
+      toast.info("Please login with mobile OTP to confirm your pickup.");
+      setShowAuthModal(true);
+      return;
+    }
+
+    finalizePickup();
+  };
+
+  const finalizePickup = () => {
     toast.success("Pickup Confirmed! Partner is assigned.");
     router.push("/");
+  };
+
+  // Checkout Fast2SMS Modal Handlers
+  const handleAuthPhoneSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthNotice("");
+
+    const cleanPhone = authPhone.replace(/\D/g, "");
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      setAuthError("Please enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const res = await fetch("/api/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: cleanPhone }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setAuthOtp(["", "", "", "", "", ""]);
+        setAuthStep("otp");
+        setResendTimer(30);
+        setCanResend(false);
+
+        if (data.dev_otp) {
+          setAuthNotice(`OTP dispatched via Fast2SMS. (Dev Code: ${data.dev_otp})`);
+        } else {
+          setAuthNotice("✅ 6-digit OTP sent to your phone via Fast2SMS.");
+        }
+        setTimeout(() => otpRefs.current[0]?.focus(), 150);
+      } else {
+        setAuthError(data.error || "Failed to send OTP. Please try again.");
+      }
+    } catch (err: any) {
+      setAuthError(`Network error: ${err.message}`);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleAuthOtpChange = (index: number, val: string) => {
+    const digit = val.replace(/\D/g, "").slice(-1);
+    const newOtp = [...authOtp];
+    newOtp[index] = digit;
+    setAuthOtp(newOtp);
+    setAuthError("");
+
+    if (digit && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleAuthOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+
+    const fullOtp = authOtp.join("");
+    if (fullOtp.length !== 6) {
+      setAuthError("Please enter all 6 digits of the OTP.");
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      const res = await fetch("/api/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mobile: authPhone,
+          otp: fullOtp,
+        }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setAuthError("");
+        setAuthNotice("");
+        setAuthStep("role");
+      } else {
+        setAuthError(data.error || "Invalid OTP. Please check the code.");
+        otpRefs.current[0]?.focus();
+      }
+    } catch (err: any) {
+      setAuthError(`Verification error: ${err.message}`);
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleAuthRoleSelect = (selectedRole: "household" | "business") => {
+    setAuthRole(selectedRole);
+
+    const generatedName = `User ${authPhone.slice(-4)}`;
+    const userObj = {
+      id: Math.floor(1000 + Math.random() * 9000),
+      name: generatedName,
+      mobile: `+91 ${authPhone}`,
+      role: selectedRole,
+    };
+    const token = `token_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("bottelpay_token", token);
+      localStorage.setItem("bottelpay_user", JSON.stringify(userObj));
+      localStorage.setItem("scrap_pay_session", "true");
+      localStorage.setItem("scrap_pay_user", JSON.stringify(userObj));
+      document.cookie = `bottelpay_token=${token}; path=/; max-age=2592000`;
+    }
+
+    setShowAuthModal(false);
+    toast.success(`Account verified! Finalizing your pickup...`);
+    finalizePickup();
   };
 
   return (
@@ -120,60 +281,54 @@ export default function BookPickupPage() {
                   <Truck className="w-6 h-6" />
                 </div>
                 <h3 className="font-bold text-gray-900 text-sm">Large Quantity</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">Requires Truck/Tempo</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Requires Pickup Van</p>
               </button>
             </div>
           </section>
 
-          {/* Scrap Type Selection (Live from Odoo) */}
+          {/* Scrap Types Selection */}
           <section className="px-5 py-6 bg-white mb-2">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Select Your Scrap Type</h2>
-              {loadingOptions && (
-                <span className="text-[11px] text-gray-400 flex items-center gap-1 font-medium">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Syncing with Odoo...
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {scrapOptions.map(type => {
-                const isSelected = scrapTypes.includes(type);
-                return (
-                  <button
-                    key={type}
-                    onClick={() => toggleScrapType(type)}
-                    className={`px-4 py-2 rounded-full text-sm font-bold transition-all border ${isSelected ? "bg-gray-900 text-white border-gray-900 shadow-md" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
-                  >
-                    {type}
-                    {isSelected && <Check className="w-3.5 h-3.5 inline ml-1.5" />}
-                  </button>
-                )
-              })}
-            </div>
+            <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Select Scrap Items</h2>
+            {loadingOptions ? (
+              <div className="flex items-center justify-center p-8 text-gray-400">
+                <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading scrap items...
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {scrapOptions.map((type) => {
+                  const isSelected = scrapTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleScrapType(type)}
+                      className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${isSelected ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" : "bg-gray-50 border-gray-200 text-gray-700 hover:border-gray-300"}`}
+                    >
+                      {isSelected && <Check className="w-3.5 h-3.5" />}
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
-          {/* Address Section */}
+          {/* Address & Time Slot */}
           <section className="px-5 py-6 bg-white mb-2">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Pickup Address</h2>
-              <button onClick={() => setIsMapOpen(true)} className="text-[11px] font-bold text-brand-600 hover:text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
-                Change/Select
-              </button>
-            </div>
-            <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <div className="mt-0.5 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100 shrink-0">
-                <MapPin className="w-4 h-4 text-brand-600" />
+            <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Pickup Details</h2>
+            <div 
+              onClick={() => setIsMapOpen(true)}
+              className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-between cursor-pointer hover:border-gray-300 transition-colors mb-3"
+            >
+              <div className="flex items-center gap-3">
+                <MapPin className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-gray-500">Pickup Location</p>
+                  <p className="text-sm font-black text-gray-900">Amrath Village, Jamui</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900 mb-0.5">Amrath, Bihar</p>
-                <p className="text-xs text-gray-500">Amrath Village, Near Main Market, Jamui, Bihar 811305, India</p>
-              </div>
+              <span className="text-xs font-bold text-emerald-600">Change</span>
             </div>
-          </section>
 
-          {/* Date & Time (Optional) */}
-          <section className="px-5 py-6 bg-white">
-            <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Preferred Slot <span className="text-gray-300 normal-case">(Optional)</span></h2>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100">
                 <Calendar className="w-4 h-4 text-gray-400" />
@@ -192,7 +347,7 @@ export default function BookPickupPage() {
         <div className="absolute bottom-0 left-0 w-full p-5 bg-white border-t border-gray-100 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)] z-20">
           <button 
             onClick={handleConfirm}
-            className="w-full bg-[#25D366] text-white py-4 rounded-xl font-black text-lg shadow-xl shadow-[#25D366]/30 hover:bg-[#20b858] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-[#25D366] text-white py-4 rounded-xl font-black text-lg shadow-xl shadow-[#25D366]/30 hover:bg-[#20b858] hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             Confirm Pickup
           </button>
@@ -218,10 +373,8 @@ export default function BookPickupPage() {
           </button>
         </div>
 
-        {/* Visual Map Placeholder */}
         <div className="flex-1 bg-blue-50 relative overflow-hidden flex items-center justify-center">
           <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-400 via-transparent to-transparent bg-[length:20px_20px]"></div>
-          {/* Map Grid effect */}
           <div className="w-full h-full" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '40px 40px', opacity: 0.3 }}></div>
           
           <div className="absolute z-10 flex flex-col items-center">
@@ -237,6 +390,173 @@ export default function BookPickupPage() {
           </button>
         </div>
       </div>
+
+      {/* ─── MANDATORY CHECKOUT LOGIN MODAL (Triggered only on Confirm Pickup) ─── */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl relative border border-slate-100 overflow-hidden">
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => setShowAuthModal(false)}
+              className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex flex-col items-center text-center mb-6 pt-2">
+              <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-3 text-emerald-600">
+                <Recycle className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900">
+                {authStep === "phone" && "Verify to Confirm Pickup"}
+                {authStep === "otp" && "Enter 6-Digit OTP"}
+                {authStep === "role" && "Confirm Profile"}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {authStep === "phone" && "Enter your 10-digit number to receive order updates."}
+                {authStep === "otp" && `Enter the 6-digit code sent to +91 ${authPhone}`}
+                {authStep === "role" && "Select account type"}
+              </p>
+            </div>
+
+            {authError && (
+              <div className="mb-4 p-2.5 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-xs font-semibold">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
+            {authNotice && (
+              <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold">
+                {authNotice}
+              </div>
+            )}
+
+            {authStep === "phone" && (
+              <form onSubmit={handleAuthPhoneSubmit} className="space-y-4">
+                <div className="flex bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100 transition-all">
+                  <div className="flex items-center justify-center px-3.5 border-r border-slate-200 bg-slate-50 text-slate-700 font-bold text-sm">
+                    🇮🇳 +91
+                  </div>
+                  <input 
+                    type="tel"
+                    maxLength={10}
+                    value={authPhone}
+                    onChange={(e) => {
+                      setAuthPhone(e.target.value.replace(/\D/g, ""));
+                      setAuthError("");
+                    }}
+                    placeholder="Enter 10-digit number"
+                    className="flex-1 py-3 px-3 text-slate-900 font-bold tracking-widest placeholder-slate-400 focus:outline-none text-base"
+                    autoFocus
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={authPhone.length !== 10 || isSendingOtp}
+                  className="w-full bg-emerald-600 disabled:bg-emerald-300 text-white py-3.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                >
+                  {isSendingOtp ? "Sending OTP via Fast2SMS..." : "Send OTP"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            )}
+
+            {authStep === "otp" && (
+              <form onSubmit={handleAuthOtpSubmit} className="space-y-5">
+                <div className="grid grid-cols-6 gap-1.5">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <input 
+                      key={i}
+                      ref={(el) => { otpRefs.current[i] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={authOtp[i]}
+                      onChange={(e) => handleAuthOtpChange(i, e.target.value)}
+                      className="w-full h-12 bg-white border border-slate-300 rounded-xl text-center text-lg font-black text-slate-900 shadow-sm focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                    />
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <button type="button" onClick={() => setAuthStep("phone")} className="text-slate-600 hover:underline">
+                    Edit Number
+                  </button>
+                  {canResend ? (
+                    <button 
+                      type="button" 
+                      onClick={() => handleAuthPhoneSubmit({ preventDefault: () => {} } as React.FormEvent)}
+                      className="text-emerald-600 font-bold flex items-center gap-1 hover:underline"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Resend
+                    </button>
+                  ) : (
+                    <span className="text-slate-400">Resend in {resendTimer}s</span>
+                  )}
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={!authOtp.every((d) => d.trim().length === 1) || isVerifyingOtp}
+                  className="w-full bg-emerald-600 disabled:bg-emerald-300 text-white py-3.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-700 active:scale-[0.98] transition-all"
+                >
+                  {isVerifyingOtp ? "Verifying..." : "Verify & Confirm Pickup"}
+                </button>
+              </form>
+            )}
+
+            {authStep === "role" && (
+              <div className="space-y-3">
+                <button 
+                  onClick={() => handleAuthRoleSelect("household")}
+                  className="w-full flex items-center justify-between p-3.5 rounded-2xl border-2 border-emerald-600 bg-emerald-50 text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-600 text-white">
+                      <HomeIcon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Household</h4>
+                      <p className="text-[11px] text-slate-500">Recycle from home</p>
+                    </div>
+                  </div>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </button>
+
+                <button 
+                  onClick={() => handleAuthRoleSelect("business")}
+                  className="w-full flex items-center justify-between p-3.5 rounded-2xl border-2 border-slate-200 bg-white hover:border-emerald-300 text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-600 text-white">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Business</h4>
+                      <p className="text-[11px] text-slate-500">Shop or enterprise</p>
+                    </div>
+                  </div>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </button>
+              </div>
+            )}
+
+            {/* Skip Button */}
+            <div className="mt-5 text-center pt-3 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => setShowAuthModal(false)}
+                className="text-xs text-slate-500 hover:text-emerald-700 font-bold transition-colors py-1 px-3 rounded-lg hover:bg-slate-50"
+              >
+                Cancel & Review Order
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
