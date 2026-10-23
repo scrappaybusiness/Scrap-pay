@@ -30,7 +30,7 @@ import {
   CheckCircle2,
   LogIn
 } from "lucide-react";
-import { toast } from "sonner";
+import PickupMapModal, { PickupAddressData } from "@/components/PickupMapModal";
 
 export default function HomePage() {
   const router = useRouter();
@@ -41,6 +41,17 @@ export default function HomePage() {
   const [userMobile, setUserMobile] = useState("");
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [pickupAddress, setPickupAddress] = useState("Amrath Village, Jamui, Bihar");
+
+  // Notification Toast State (In-app)
+  const [notificationToast, setNotificationToast] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  const showToast = (text: string, type: "success" | "error" | "info" = "info") => {
+    setNotificationToast({ text, type });
+    setTimeout(() => {
+      setNotificationToast((curr) => (curr?.text === text ? null : curr));
+    }, 3500);
+  };
 
   // 15-Minute Timer & Fast2SMS Login Modal State
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -80,6 +91,15 @@ export default function HomePage() {
           // Guest User: Do NOT force redirect, allow free browsing!
           setIsAuthenticated(false);
           setUserName("");
+        }
+
+        // Restore saved pickup address if available
+        const savedAddr = localStorage.getItem("scrap_pay_pickup_address");
+        if (savedAddr) {
+          try {
+            const parsed = JSON.parse(savedAddr);
+            if (parsed?.fullAddress) setPickupAddress(parsed.fullAddress);
+          } catch (e) {}
         }
       }
     } catch (e) {
@@ -282,7 +302,7 @@ export default function HomePage() {
     setUserName(generatedName.split(" ")[0]);
     setUserMobile(userObj.mobile);
     setShowLoginModal(false);
-    toast.success(`Welcome to Scrap Pay, ${generatedName}!`);
+    showToast(`Welcome to Scrap Pay, ${generatedName}!`, "success");
 
     if (pendingActionUrl) {
       router.push(pendingActionUrl);
@@ -290,9 +310,10 @@ export default function HomePage() {
     }
   };
 
-  const handleLocationConfirm = () => {
+  const handleAddressConfirmed = (data: PickupAddressData) => {
+    setPickupAddress(data.fullAddress);
     setIsMapOpen(false);
-    toast.success("Address saved successfully");
+    showToast("Pickup address updated from map!", "success");
   };
 
   // Dynamic Avatar Initial Generator
@@ -404,7 +425,7 @@ export default function HomePage() {
             </div>
             <div>
               <p className="text-xs font-bold text-gray-400">Current Pickup Address</p>
-              <p className="text-sm font-black text-gray-800">Amrath Village, Jamui</p>
+              <p className="text-sm font-black text-gray-800 line-clamp-1">{pickupAddress}</p>
             </div>
           </div>
           <span className="text-xs font-bold text-brand-600">Change</span>
@@ -690,6 +711,29 @@ export default function HomePage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ─── Leaflet Interactive Map Modal ─── */}
+      <PickupMapModal
+        isOpen={isMapOpen}
+        onClose={() => setIsMapOpen(false)}
+        onConfirmAddress={handleAddressConfirmed}
+        initialAddress={pickupAddress}
+      />
+
+      {/* ─── Toast Notification Alert ─── */}
+      {notificationToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] pointer-events-none animate-fadeIn">
+          <div className={`px-4 py-2.5 rounded-2xl shadow-xl text-xs font-bold text-center flex items-center justify-center gap-2 border ${
+            notificationToast.type === "success" 
+              ? "bg-emerald-600 text-white border-emerald-500" 
+              : notificationToast.type === "error"
+              ? "bg-rose-600 text-white border-rose-500"
+              : "bg-slate-900 text-white border-slate-800"
+          }`}>
+            <span>{notificationToast.text}</span>
           </div>
         </div>
       )}

@@ -10,25 +10,37 @@ import {
   Calendar, 
   Clock, 
   Check, 
-  Search,
-  ChevronLeft,
-  Loader2,
-  Recycle,
-  ArrowRight,
-  RotateCcw,
-  AlertCircle,
-  Building2,
-  Home as HomeIcon,
-  CheckCircle2
+  Search, 
+  ChevronLeft, 
+  Loader2, 
+  Recycle, 
+  ArrowRight, 
+  RotateCcw, 
+  AlertCircle, 
+  Building2, 
+  Home as HomeIcon, 
+  CheckCircle2,
+  Sparkles
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { getScrapProducts, OdooProduct } from "@/lib/odoo";
+import PickupMapModal, { PickupAddressData } from "@/components/PickupMapModal";
 
 const DEFAULT_SCRAP_OPTIONS = [
   "Normal Recyclables", "Large Appliances", "Small Appliances", 
   "IT/E-waste", "Vehicle Scrap", "Others"
 ];
+
+// Default fallback address
+const DEFAULT_ADDRESS: PickupAddressData = {
+  fullAddress: "Amrath Village, Main Market, Jamui, Bihar 811305",
+  street: "Main Market Road",
+  area: "Amrath Village",
+  city: "Jamui",
+  state: "Bihar",
+  pincode: "811305",
+  lat: 24.9213,
+  lng: 86.2235,
+};
 
 export default function BookPickupPage() {
   const router = useRouter();
@@ -38,6 +50,19 @@ export default function BookPickupPage() {
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [scrapOptions, setScrapOptions] = useState<string[]>(DEFAULT_SCRAP_OPTIONS);
   const [loadingOptions, setLoadingOptions] = useState(true);
+
+  // Auto-filled Address State (Populated from Leaflet interactive map)
+  const [pickupAddress, setPickupAddress] = useState<PickupAddressData>(DEFAULT_ADDRESS);
+
+  // Notification Toast State
+  const [notificationToast, setNotificationToast] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  const showToast = (text: string, type: "success" | "error" | "info" = "info") => {
+    setNotificationToast({ text, type });
+    setTimeout(() => {
+      setNotificationToast((curr) => (curr?.text === text ? null : curr));
+    }, 3500);
+  };
 
   // Mandatory Checkout Fast2SMS Login Modal
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -57,20 +82,21 @@ export default function BookPickupPage() {
   useEffect(() => {
     setMounted(true);
 
-    // Fetch live products/categories from Odoo
-    getScrapProducts()
-      .then((products: OdooProduct[]) => {
-        if (products && products.length > 0) {
-          const names = Array.from(new Set(products.map(p => p.name)));
-          setScrapOptions(names);
+    // Load persisted address from localStorage if previously chosen
+    try {
+      if (typeof window !== "undefined") {
+        const savedAddr = localStorage.getItem("scrap_pay_pickup_address");
+        if (savedAddr) {
+          setPickupAddress(JSON.parse(savedAddr));
         }
-      })
-      .catch(() => {
-        setScrapOptions(DEFAULT_SCRAP_OPTIONS);
-      })
-      .finally(() => {
-        setLoadingOptions(false);
-      });
+      }
+    } catch (e) {
+      console.warn("Could not load stored address", e);
+    }
+
+    // Initialize scrap categories
+    setScrapOptions(DEFAULT_SCRAP_OPTIONS);
+    setLoadingOptions(false);
   }, []);
 
   // Resend OTP countdown inside checkout modal
@@ -100,17 +126,24 @@ export default function BookPickupPage() {
     }
   };
 
+  // Callback when user confirms interactive map pin & auto-fetched address
+  const handleAddressConfirmed = (data: PickupAddressData) => {
+    setPickupAddress(data);
+    setIsMapOpen(false);
+    showToast("Pickup address updated from map!", "success");
+  };
+
   // ─── Final Step Confirmation (Mandatory Login Enforced Here Only) ───
   const handleConfirm = () => {
     if (!vehicle || scrapTypes.length === 0) {
-      toast.error("Please select a vehicle and at least one scrap type.");
+      showToast("Please select a vehicle and at least one scrap type.", "error");
       return;
     }
 
     const token = typeof window !== "undefined" && (localStorage.getItem("bottelpay_token") || localStorage.getItem("scrap_pay_session"));
     if (!token) {
       // User is a guest -> Mandatory login required only at final checkout!
-      toast.info("Please login with mobile OTP to confirm your pickup.");
+      showToast("Please verify your mobile number to confirm pickup.", "info");
       setShowAuthModal(true);
       return;
     }
@@ -119,8 +152,8 @@ export default function BookPickupPage() {
   };
 
   const finalizePickup = () => {
-    toast.success("Pickup Confirmed! Partner is assigned.");
-    router.push("/");
+    showToast("Pickup Confirmed! Partner assigned to your location.", "success");
+    setTimeout(() => router.push("/"), 1500);
   };
 
   // Checkout Fast2SMS Modal Handlers
@@ -236,12 +269,27 @@ export default function BookPickupPage() {
     }
 
     setShowAuthModal(false);
-    toast.success(`Account verified! Finalizing your pickup...`);
+    showToast(`Account verified! Finalizing your pickup...`, "success");
     finalizePickup();
   };
 
   return (
     <div className="w-full min-h-screen bg-gray-900 md:bg-transparent relative flex flex-col font-sans overflow-hidden md:py-8">
+      
+      {/* Toast Notification Alert */}
+      {notificationToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] pointer-events-none animate-fadeIn">
+          <div className={`px-4 py-2.5 rounded-2xl shadow-xl text-xs font-bold text-center flex items-center justify-center gap-2 border ${
+            notificationToast.type === "success" 
+              ? "bg-emerald-600 text-white border-emerald-500" 
+              : notificationToast.type === "error"
+              ? "bg-rose-600 text-white border-rose-500"
+              : "bg-slate-900 text-white border-slate-800"
+          }`}>
+            <span>{notificationToast.text}</span>
+          </div>
+        </div>
+      )}
       
       {/* ─── Slide-over Container ─── */}
       <div className={`w-full min-h-screen md:min-h-0 bg-gray-50 flex flex-col transition-transform duration-500 ease-out md:max-w-4xl md:mx-auto md:rounded-3xl md:shadow-2xl md:overflow-hidden ${mounted ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}`}>
@@ -254,6 +302,9 @@ export default function BookPickupPage() {
             </button>
             <h1 className="text-xl font-black text-gray-900">Schedule Pickup</h1>
           </div>
+          <span className="text-[11px] font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">
+            10% Extra Cash Active
+          </span>
         </header>
 
         <main className="flex-1 overflow-y-auto hide-scrollbar pb-32">
@@ -264,9 +315,9 @@ export default function BookPickupPage() {
             <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={() => setVehicle("small")}
-                className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center text-center ${vehicle === "small" ? "border-brand-600 bg-brand-50" : "border-gray-100 hover:border-brand-200 shadow-sm"}`}
+                className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center text-center ${vehicle === "small" ? "border-emerald-600 bg-emerald-50/60" : "border-gray-100 hover:border-emerald-200 shadow-sm"}`}
               >
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${vehicle === "small" ? "bg-brand-600 text-white" : "bg-gray-100 text-gray-500"}`}>
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${vehicle === "small" ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-500"}`}>
                   <Bike className="w-6 h-6" />
                 </div>
                 <h3 className="font-bold text-gray-900 text-sm">Small Quantity</h3>
@@ -275,9 +326,9 @@ export default function BookPickupPage() {
 
               <button 
                 onClick={() => setVehicle("large")}
-                className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center text-center ${vehicle === "large" ? "border-brand-600 bg-brand-50" : "border-gray-100 hover:border-brand-200 shadow-sm"}`}
+                className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center text-center ${vehicle === "large" ? "border-emerald-600 bg-emerald-50/60" : "border-gray-100 hover:border-emerald-200 shadow-sm"}`}
               >
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${vehicle === "large" ? "bg-brand-600 text-white" : "bg-gray-100 text-gray-500"}`}>
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${vehicle === "large" ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-500"}`}>
                   <Truck className="w-6 h-6" />
                 </div>
                 <h3 className="font-bold text-gray-900 text-sm">Large Quantity</h3>
@@ -291,7 +342,7 @@ export default function BookPickupPage() {
             <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Select Scrap Items</h2>
             {loadingOptions ? (
               <div className="flex items-center justify-center p-8 text-gray-400">
-                <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading scrap items...
+                <Loader2 className="w-6 h-6 animate-spin mr-2 text-emerald-600" /> Loading scrap items...
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -312,21 +363,50 @@ export default function BookPickupPage() {
             )}
           </section>
 
-          {/* Address & Time Slot */}
+          {/* ─── Address Section (Interactive Leaflet Map Auto-Fill) ─── */}
           <section className="px-5 py-6 bg-white mb-2">
-            <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider mb-4">Pickup Details</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Pickup Location & Details</h2>
+              <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" /> Interactive Map Active
+              </span>
+            </div>
+
+            {/* Interactive Card opening Leaflet Map */}
             <div 
               onClick={() => setIsMapOpen(true)}
-              className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-between cursor-pointer hover:border-gray-300 transition-colors mb-3"
+              className="p-4 bg-emerald-50/60 rounded-2xl border-2 border-emerald-200/90 flex items-start justify-between cursor-pointer hover:border-emerald-400 transition-all mb-3 shadow-sm group"
             >
-              <div className="flex items-center gap-3">
-                <MapPin className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 group-hover:scale-105 transition-transform">
+                  <MapPin className="w-5 h-5" />
+                </div>
                 <div>
-                  <p className="text-xs font-bold text-gray-500">Pickup Location</p>
-                  <p className="text-sm font-black text-gray-900">Amrath Village, Jamui</p>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-xs font-black text-emerald-800 uppercase tracking-wide">Pickup Address (GPS Pin)</p>
+                    <span className="text-[10px] font-bold bg-white text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200 shadow-xs">
+                      Autofilled
+                    </span>
+                  </div>
+                  <p className="text-sm font-black text-slate-900 line-clamp-1">
+                    {pickupAddress.area || pickupAddress.city ? `${pickupAddress.area || pickupAddress.street}, ${pickupAddress.city}` : pickupAddress.fullAddress}
+                  </p>
+                  <p className="text-xs text-slate-600 line-clamp-2 mt-0.5 font-medium">
+                    {pickupAddress.fullAddress}
+                  </p>
+                  {pickupAddress.houseNo && (
+                    <p className="text-[11px] text-emerald-800 font-bold mt-1">
+                      Flat/House: {pickupAddress.houseNo} {pickupAddress.landmark ? `• Landmark: ${pickupAddress.landmark}` : ""}
+                    </p>
+                  )}
                 </div>
               </div>
-              <span className="text-xs font-bold text-emerald-600">Change</span>
+              <button
+                type="button"
+                className="text-xs font-black text-emerald-700 bg-white border border-emerald-300 px-3 py-1.5 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-xs shrink-0 ml-2"
+              >
+                Change Pin
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -336,7 +416,7 @@ export default function BookPickupPage() {
               </div>
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100">
                 <Clock className="w-4 h-4 text-gray-400" />
-                <input type="text" placeholder="Anytime" className="bg-transparent text-sm font-bold text-gray-900 w-full outline-none placeholder-gray-500" />
+                <input type="text" placeholder="Anytime (2 Hours)" className="bg-transparent text-sm font-bold text-gray-900 w-full outline-none placeholder-gray-500" />
               </div>
             </div>
           </section>
@@ -354,42 +434,14 @@ export default function BookPickupPage() {
         </div>
       </div>
 
-      {/* ─── Map & Location UI Modal ─── */}
-      <div className={`fixed inset-0 z-50 flex flex-col bg-white transition-transform duration-300 ease-in-out ${isMapOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-        <header className="px-4 py-4 bg-white border-b border-gray-100 flex items-center justify-between shrink-0 shadow-sm z-10 relative">
-          <button onClick={() => setIsMapOpen(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-900" />
-          </button>
-          <h2 className="text-lg font-black text-gray-900 absolute left-1/2 -translate-x-1/2">Select Address</h2>
-        </header>
-
-        <div className="px-4 py-4 shrink-0 bg-white shadow-sm z-10">
-          <div className="relative mb-3">
-            <Search className="w-5 h-5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input type="text" placeholder="Search / Enter Address Manually" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500" />
-          </div>
-          <button className="flex items-center gap-2 text-brand-600 font-bold text-sm bg-brand-50 px-4 py-3 rounded-xl w-full justify-center">
-            <Navigation className="w-4 h-4" /> Use Current Location
-          </button>
-        </div>
-
-        <div className="flex-1 bg-blue-50 relative overflow-hidden flex items-center justify-center">
-          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-400 via-transparent to-transparent bg-[length:20px_20px]"></div>
-          <div className="w-full h-full" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '40px 40px', opacity: 0.3 }}></div>
-          
-          <div className="absolute z-10 flex flex-col items-center">
-            <div className="bg-gray-900 text-white text-[10px] font-bold px-3 py-1.5 rounded-full mb-1 shadow-lg">Move pin to adjust</div>
-            <MapPin className="w-10 h-10 text-brand-600 drop-shadow-md -mt-2" />
-            <div className="w-2 h-1 bg-black/20 rounded-full mt-1 blur-[1px]"></div>
-          </div>
-        </div>
-
-        <div className="p-5 bg-white border-t border-gray-100 shrink-0 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)] z-10">
-          <button onClick={() => setIsMapOpen(false)} className="w-full bg-brand-600 text-white py-4 rounded-xl font-bold text-[16px] shadow-lg shadow-brand-600/30">
-            Confirm Location
-          </button>
-        </div>
-      </div>
+      {/* ─── 1. REAL INTERACTIVE LEAFLET MAP MODAL WITH NOMINATIM GEOCODING ─── */}
+      <PickupMapModal
+        isOpen={isMapOpen}
+        onClose={() => setIsMapOpen(false)}
+        onConfirmAddress={handleAddressConfirmed}
+        initialAddress={pickupAddress.fullAddress}
+        initialCoordinates={{ lat: pickupAddress.lat, lng: pickupAddress.lng }}
+      />
 
       {/* ─── MANDATORY CHECKOUT LOGIN MODAL (Triggered only on Confirm Pickup) ─── */}
       {showAuthModal && (
