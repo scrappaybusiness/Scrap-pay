@@ -16,7 +16,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import type { Coordinates } from "./MapboxMapInner";
-import { optimizeScrapPickupRoute, PickupStop } from "@/src/lib/mapboxOptimization";
+import { optimizeScrapPickupRoute, PickupStop } from "@/lib/mapboxOptimization";
 
 // Dynamically load MapboxMapInner with SSR disabled to prevent `window is not defined`
 const MapboxMapInner = dynamic(() => import("./MapboxMapInner"), {
